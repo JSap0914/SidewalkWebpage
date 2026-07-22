@@ -137,8 +137,17 @@ class PanoManager {
     // Adds event listeners to the navigation arrows.
     svl.ui.streetview.navArrows.on('click', (event) => {
       event.stopPropagation();
+      // The route-forward arrow (added when the link graph offers no arrow along the route) walks the compass's
+      // "straight" path instead of following a provider link, so the pano agrees with the compass. (#4671)
+      if (event.target.classList.contains('route-forward-arrow')) {
+        svl.tracker.push('Click_RouteForwardArrow');
+        svl.navigationService.moveForward()
+          .then(() => svl.tracker.push('RouteForwardArrow_Success'))
+          .catch(() => svl.tracker.push('RouteForwardArrow_PanoNotAvailable'));
+        return;
+      }
       const targetPanoId = event.target.getAttribute('pano-id');
-      if (targetPanoId) svl.navigationService.moveToPano(event.target.getAttribute('pano-id'));
+      if (targetPanoId) svl.navigationService.moveToPano(targetPanoId);
     });
 
     const panoViewerLogo = createPanoViewerLogo(this.panoCanvas.parentElement, panoViewerType);
@@ -357,13 +366,54 @@ class PanoManager {
       arrowGroup.appendChild(arrow);
     });
 
+    this.#addRouteForwardArrow(arrowGroup, links);
+
     const heading = svl.panoViewer.getPov().heading;
     arrowGroup.setAttribute('transform', `rotate(${-heading})`);
   }
 
   /**
+   * Adds a route-forward arrow pointing along the compass's target direction, so the pano agrees with the compass
+   * where the imagery link graph dead-ends and offers no arrow that way (#4671). Clicking it walks forward the same
+   * route-aware way the compass's "straight" action does (moveForward), rather than following a provider link.
+   *
+   * Added only when the user is en route with an assigned task (not free exploration or the scripted tutorial), and
+   * only when no existing link arrow already points roughly forward — in the common case where the graph does
+   * continue along the route, that link arrow already affords going forward and this would just stack on top of it.
+   * @param {SVGGElement} arrowGroup - The nav-arrow group to append to.
+   * @param {Array<{panoId: string, heading: number}>} links - The current pano's linked panos.
+   * @private
+   */
+  #addRouteForwardArrow(arrowGroup, links) {
+    if (!svl.compass || svl.isExploreAddressMode() || svl.isOnboarding()) return;
+    if (!svl.taskContainer || !svl.taskContainer.tasksLoaded() || !svl.taskContainer.getCurrentTask()) return;
+    if (!svl.compass.isEnRoute()) return;
+
+    let targetHeading;
+    try {
+      targetHeading = (svl.compass.getTargetAngle() + 360) % 360;
+    } catch {
+      return; // Route geometry not ready yet (e.g. mid-initialization); skip rather than draw a bogus arrow.
+    }
+
+    // If a link already points within this many degrees of the route direction, the graph continues along the route
+    // and its link arrow already affords going forward — don't stack a second arrow on it. This threshold is what
+    // scopes the route arrow to the dead-end case the compass and the link arrows disagree on.
+    const FORWARD_LINK_THRESHOLD = 30;
+    const hasForwardLink = links.some((link) => {
+      const delta = Math.abs(((((link.heading - targetHeading) % 360) + 540) % 360) - 180);
+      return delta <= FORWARD_LINK_THRESHOLD;
+    });
+    if (hasForwardLink) return;
+
+    const arrow = this.#createRouteForwardArrow();
+    arrow.setAttribute('transform', `translate(15, 0) rotate(${targetHeading}, 15, 30)`);
+    arrowGroup.appendChild(arrow);
+  }
+
+  /**
    * Create svg navigation arrow, setting its width.
-   * @returns {SVGPathElement}
+   * @returns {SVGImageElement}
    * @private
    */
   #createArrow() {
@@ -373,6 +423,22 @@ class PanoManager {
     image.setAttribute('height', '20');
     image.setAttribute('x', '5');  // ((areaWidth / 2)  - iconWidth) / 2 = ((60 / 2 - 20) / 2 = 5
 
+    return image;
+  }
+
+  /**
+   * Create the SVG route-forward arrow: the same chevron shape and size as a link arrow, but in the navigation blue
+   * (arrow-forward-route.svg) and tagged so its click runs moveForward() instead of following a link. (#4671)
+   * @returns {SVGImageElement}
+   * @private
+   */
+  #createRouteForwardArrow() {
+    const image = document.createElementNS('http://www.w3.org/2000/svg', 'image');
+    image.setAttributeNS('http://www.w3.org/1999/xlink', 'href', '/assets/images/icons/arrow-forward-route.svg');
+    image.setAttribute('width', '20');
+    image.setAttribute('height', '20');
+    image.setAttribute('x', '5');
+    image.classList.add('route-forward-arrow');
     return image;
   }
 

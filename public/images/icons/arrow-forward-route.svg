@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Route-forward arrow for Explore's on-pano navigation (#4671). Same chevron as arrow-forward.svg, but filled in the
+     navigation blue (mirrors the --color-link-100 design token, #3E8BD9 — the peg / "you" color) so it reads as the way
+     along the route rather than a provider imagery link. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="24px" height="24px" viewBox="0 -960 960 960">
+  <path d="m 885.5,-315.5 -71,71 -329,-329 -329,329 -71,-71 400,-400 z" fill="#3E8BD9" />
+</svg>
